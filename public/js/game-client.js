@@ -49,17 +49,20 @@
       </div>`).join('');
     }
 
-    // Connect and get room info
+    // Connect and rejoin room (new socket ID after page navigation)
     socket.on('connect', () => {
         myPlayerId = socket.id;
         setStatus('Joining room…');
-        socket.emit('get-room', { roomCode }, ({ room, error }) => {
-            if (error || !room) {
+        socket.emit('rejoin-room', { roomCode, playerName: myName }, ({ success, room, error }) => {
+            if (!success || !room) {
                 setStatus('Room not found. Redirecting…');
                 setTimeout(() => location.href = '/', 2000);
                 return;
             }
             currentRoom = room;
+            // Find my updated player entry (server updated our socket ID)
+            const me = room.players.find(p => p.name === myName);
+            if (me) myPlayerId = me.id;
             isHost = room.hostId === myPlayerId;
             renderPlayerScores(room.players);
             setStatus(isHost ? 'You are the host' : 'Waiting for game…');

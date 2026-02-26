@@ -16,6 +16,29 @@ function generateCode() {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
+// Grace period timers — prevent rooms from being deleted during page navigation
+const roomDeleteTimers = new Map();
+
+function scheduleRoomDelete(code, delay = 15000) {
+    if (roomDeleteTimers.has(code)) clearTimeout(roomDeleteTimers.get(code));
+    roomDeleteTimers.set(code, setTimeout(() => {
+        const room = rooms.get(code);
+        if (room && room.players.length === 0) {
+            rooms.delete(code);
+            console.log(`Room ${code} cleaned up (empty)`);
+        }
+        roomDeleteTimers.delete(code);
+    }, delay));
+}
+
+function cancelRoomDelete(code) {
+    if (roomDeleteTimers.has(code)) {
+        clearTimeout(roomDeleteTimers.get(code));
+        roomDeleteTimers.delete(code);
+    }
+}
+
+
 io.on('connection', (socket) => {
     console.log('+ Player connected:', socket.id);
 
@@ -53,6 +76,41 @@ io.on('connection', (socket) => {
         const room = rooms.get(roomCode.toUpperCase());
         cb(room ? { room } : { error: 'Not found' });
     });
+
+    // Rejoin after page navigation (new socket ID, same player name)
+    socket.on('rejoin-room', ({ roomCode, playerName }, cb) => {
+        const code = roomCode.toUpperCase().trim();
+        const room = rooms.get(code);
+        if (!room) return cb({ success: false, error: 'Room not found' });
+
+        // Cancel any pending delete
+        cancelRoomDelete(code);
+
+        // Check if this name already exists (disconnected player returning)
+        const existing = room.players.find(p => p.name === playerName);
+        if (existing) {
+            // Update socket ID to new connection
+            existing.id = socket.id;
+            if (room.hostId === existing.id || room.players[0] === existing) {
+                room.hostId = socket.id;
+            }
+        } else {
+            // New player joining via direct URL
+            room.players.push({ id: socket.id, name: playerName, isHost: false, score: 0 });
+        }
+
+        // Fix hostId if host rejoined
+        const hostPlayer = room.players.find(p => p.name === playerName && room.hostId !== p.id);
+        if (hostPlayer && room.players.indexOf(hostPlayer) === 0) {
+            room.hostId = socket.id;
+        }
+
+        socket.join(code);
+        io.to(code).emit('room-update', { room });
+        cb({ success: true, room });
+        console.log(`"${playerName}" rejoined room ${code} (new socket: ${socket.id})`);
+    });
+
 
     socket.on('start-game', ({ roomCode }) => {
         const code = roomCode.toUpperCase();
@@ -112,7 +170,8 @@ io.on('connection', (socket) => {
             if (idx === -1) continue;
             room.players.splice(idx, 1);
             if (room.players.length === 0) {
-                rooms.delete(code);
+                // Grace period — don't delete immediately (player may be navigating to game page)
+                scheduleRoomDelete(code, 15000);
             } else {
                 if (room.hostId === socket.id) {
                     room.hostId = room.players[0].id;
