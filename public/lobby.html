@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Lobby — Venna</title>
+    <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body>
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">🎮 Venna</a>
+    </nav>
+
+    <div class="lobby-page">
+        <div class="lobby-box">
+            <div class="lobby-game-banner" id="gameBanner">
+                <div class="lobby-game-icon" id="gameIcon">🎮</div>
+                <div>
+                    <h2 style="font-size:18px;font-weight:700" id="gameName">Loading…</h2>
+                    <p style="font-size:13px;color:var(--text-muted)" id="gameDesc"></p>
+                </div>
+            </div>
+
+            <!-- Name step -->
+            <div id="stepName">
+                <div class="form-group">
+                    <label class="form-label">Your Name</label>
+                    <input id="playerName" class="input" type="text" placeholder="Enter your name" maxlength="20"
+                        autocomplete="off" />
+                </div>
+                <div class="lobby-tabs" style="margin-top:20px">
+                    <button class="lobby-tab active" id="tabCreate" onclick="switchTab('create')">Create Room</button>
+                    <button class="lobby-tab" id="tabJoin" onclick="switchTab('join')">Join Room</button>
+                </div>
+
+                <div id="panelCreate">
+                    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Generate a 6-letter code and
+                        share it with friends.</p>
+                    <button class="btn btn-primary btn-lg" style="width:100%" onclick="createRoom()">Create
+                        Room</button>
+                </div>
+
+                <div id="panelJoin" style="display:none">
+                    <div class="form-group">
+                        <label class="form-label">Room Code</label>
+                        <input id="roomCodeInput" class="input" type="text" placeholder="e.g. ABC123" maxlength="6"
+                            style="text-transform:uppercase;letter-spacing:4px;font-size:20px;text-align:center" />
+                    </div>
+                    <button class="btn btn-success btn-lg" style="width:100%" onclick="joinRoom()">Join Room</button>
+                </div>
+            </div>
+
+            <!-- Waiting room -->
+            <div id="stepWaiting" style="display:none" class="waiting-room">
+                <h3 style="font-weight:700;margin-bottom:4px">Waiting Room</h3>
+                <p style="font-size:13px;color:var(--text-muted)">Share this code with friends:</p>
+                <div class="room-code-display">
+                    <div class="code" id="displayCode">------</div>
+                    <p>Click to copy</p>
+                </div>
+                <p style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Players (<span
+                        id="playerCount">1</span>):</p>
+                <ul class="player-list" id="playerList"></ul>
+                <div id="hostActions" style="display:none;margin-top:16px">
+                    <button class="btn btn-success btn-lg" style="width:100%" onclick="startGame()" id="startBtn">Start
+                        Game</button>
+                    <p style="font-size:12px;color:var(--text-muted);margin-top:8px" id="startHint">Need at least 2
+                        players</p>
+                </div>
+                <div id="guestWait" style="display:none;margin-top:16px">
+                    <div
+                        style="display:flex;align-items:center;gap:10px;justify-content:center;color:var(--text-muted);font-size:14px">
+                        <div class="spinner" style="width:20px;height:20px;border-width:2px"></div>
+                        Waiting for host to start…
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="/js/games-data.js"></script>
+    <script src="/js/lobby.js"></script>
+</body>
+
+</html>

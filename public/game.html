@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Playing — Venna</title>
+    <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body style="overflow:hidden">
+
+    <div class="game-page">
+        <!-- Canvas area -->
+        <div class="game-canvas-area" id="canvasArea">
+            <canvas id="gameCanvas"></canvas>
+
+            <!-- Loading overlay -->
+            <div class="overlay" id="overlayLoading">
+                <div class="spinner"></div>
+                <p style="color:var(--text-muted)">Loading game…</p>
+            </div>
+
+            <!-- Countdown overlay -->
+            <div class="overlay" id="overlayCountdown" style="display:none">
+                <div class="countdown" id="countdownNum">3</div>
+            </div>
+
+            <!-- Game end overlay -->
+            <div class="overlay" id="overlayEnd" style="display:none">
+                <div class="overlay-box">
+                    <div style="font-size:48px" id="endEmoji">🏆</div>
+                    <h2 id="endTitle">Game Over!</h2>
+                    <p style="color:var(--text-muted);margin-bottom:4px" id="endSubtitle"></p>
+                    <ul class="results-list" id="resultsList"></ul>
+                    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+                        <button class="btn btn-primary" id="playAgainBtn" onclick="requestPlayAgain()">Play
+                            Again</button>
+                        <button class="btn btn-secondary" onclick="location.href='/'">Browse Games</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <aside class="game-sidebar">
+            <div class="sidebar-header" style="display:flex;align-items:center;gap:8px">
+                <span id="sidebarGameIcon">🎮</span>
+                <span id="sidebarGameName">Game</span>
+                <a href="/" style="margin-left:auto;font-size:18px;opacity:.5;line-height:1" title="Leave">✕</a>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Players</div>
+                <div id="playerScores"></div>
+            </div>
+
+            <div class="sidebar-section" id="statusSection">
+                <div class="sidebar-section-title">Status</div>
+                <div id="gameStatus" style="font-size:13px;color:var(--text-muted)">Connecting…</div>
+            </div>
+
+            <div class="chat-area">
+                <div class="sidebar-section-title" style="padding:12px 16px 0">Chat</div>
+                <div class="chat-messages" id="chatMessages">
+                    <div style="color:var(--text-muted);font-size:12px;text-align:center">Say hi to your friends! 👋
+                    </div>
+                </div>
+                <div class="chat-input-row">
+                    <input class="input" id="chatInput" placeholder="Type a message…" maxlength="120"
+                        autocomplete="off" />
+                    <button class="btn btn-primary btn-sm" onclick="sendChat()">Send</button>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="/js/games-data.js"></script>
+
+    <!-- All game scripts -->
+    <script src="/js/games/tic-tac-toe.js"></script>
+    <script src="/js/games/sea-battle.js"></script>
+    <script src="/js/games/dots-boxes.js"></script>
+    <script src="/js/games/memory.js"></script>
+    <script src="/js/games/chess.js"></script>
+    <script src="/js/games/ludo.js"></script>
+    <script src="/js/games/snakes-ladders.js"></script>
+    <script src="/js/games/yazi.js"></script>
+    <script src="/js/games/dice-combat.js"></script>
+    <script src="/js/games/whack-target.js"></script>
+    <script src="/js/games/archery.js"></script>
+    <script src="/js/games/golf.js"></script>
+    <script src="/js/games/pool.js"></script>
+    <script src="/js/games/side-scroller.js"></script>
+    <script src="/js/games/collector.js"></script>
+    <script src="/js/games/racing.js"></script>
+    <script src="/js/games/hot-potato.js"></script>
+    <script src="/js/games/pull-rope.js"></script>
+    <script src="/js/games/happy-hippos.js"></script>
+    <script src="/js/games/paint-arena.js"></script>
+    <script src="/js/games/battle-arena.js"></script>
+    <script src="/js/games/explosive-festival.js"></script>
+    <script src="/js/games/math-quiz.js"></script>
+    <script src="/js/games/traffic-jam.js"></script>
+    <script src="/js/games/animal-stack.js"></script>
+    <script src="/js/games/ball-physics.js"></script>
+    <script src="/js/games/spin-war.js"></script>
+    <script src="/js/games/knife-hit.js"></script>
+
+    <script src="/js/game-client.js"></script>
+</body>
+
+</html>

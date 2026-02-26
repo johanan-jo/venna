@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Venna — Play Games with Friends</title>
+  <meta name="description" content="50+ online multiplayer games to play with friends. Create a private room and play instantly."/>
+  <link rel="stylesheet" href="/css/style.css"/>
+</head>
+<body>
+<nav class="navbar">
+  <span class="navbar-brand">🎮 Venna</span>
+  <span style="font-size:13px;color:var(--text-muted)">50 Games · Free · Play with Friends</span>
+</nav>
+
+<section class="hero">
+  <h1>Play Games with <span>Your Friends</span></h1>
+  <p>50 multiplayer games. Create a room, share the code, play instantly.</p>
+  <div class="search-bar">
+    <input id="searchInput" class="input" type="text" placeholder="🔍  Search games…" autocomplete="off"/>
+  </div>
+  <div class="filter-row" id="filterRow">
+    <button class="filter-chip active" data-cat="all">All</button>
+    <button class="filter-chip" data-cat="board_game">Board</button>
+    <button class="filter-chip" data-cat="arcade">Arcade</button>
+    <button class="filter-chip" data-cat="action">Action</button>
+    <button class="filter-chip" data-cat="strategy">Strategy</button>
+    <button class="filter-chip" data-cat="party">Party</button>
+    <button class="filter-chip" data-cat="sports">Sports</button>
+    <button class="filter-chip" data-cat="puzzle">Puzzle</button>
+    <button class="filter-chip" data-cat="card">Card</button>
+    <button class="filter-chip" data-cat="trivia">Trivia</button>
+  </div>
+</section>
+
+<main>
+  <div class="games-grid" id="gamesGrid"></div>
+  <div class="no-results" id="noResults" style="display:none">No games found 🤷</div>
+</main>
+
+<div class="toast-container" id="toastContainer"></div>
+<script src="/js/games-data.js"></script>
+<script src="/js/main.js"></script>
+</body>
+</html>
