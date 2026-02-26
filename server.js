@@ -86,29 +86,21 @@ io.on('connection', (socket) => {
         // Cancel any pending delete
         cancelRoomDelete(code);
 
-        // Check if this name already exists (disconnected player returning)
         const existing = room.players.find(p => p.name === playerName);
         if (existing) {
-            // Update socket ID to new connection
+            // Check host BEFORE overwriting the id
+            const wasHost = room.hostId === existing.id;
             existing.id = socket.id;
-            if (room.hostId === existing.id || room.players[0] === existing) {
-                room.hostId = socket.id;
-            }
+            if (wasHost) room.hostId = socket.id;
         } else {
-            // New player joining via direct URL
+            // New name — add as a guest
             room.players.push({ id: socket.id, name: playerName, isHost: false, score: 0 });
-        }
-
-        // Fix hostId if host rejoined
-        const hostPlayer = room.players.find(p => p.name === playerName && room.hostId !== p.id);
-        if (hostPlayer && room.players.indexOf(hostPlayer) === 0) {
-            room.hostId = socket.id;
         }
 
         socket.join(code);
         io.to(code).emit('room-update', { room });
         cb({ success: true, room });
-        console.log(`"${playerName}" rejoined room ${code} (new socket: ${socket.id})`);
+        console.log(`"${playerName}" rejoined room ${code} (socket: ${socket.id}, host: ${room.hostId === socket.id})`);
     });
 
 
@@ -168,17 +160,26 @@ io.on('connection', (socket) => {
         for (const [code, room] of rooms.entries()) {
             const idx = room.players.findIndex(p => p.id === socket.id);
             if (idx === -1) continue;
-            room.players.splice(idx, 1);
-            if (room.players.length === 0) {
-                // Grace period — don't delete immediately (player may be navigating to game page)
-                scheduleRoomDelete(code, 15000);
+
+            if (room.status === 'waiting' || room.status === 'in-progress') {
+                // Player is probably just navigating between lobby and game page.
+                // Keep them in room.players so rejoin-room can find them by name.
+                // Schedule cleanup in case they truly left.
+                scheduleRoomDelete(code, 20000);
+                console.log(`Player ${socket.id} disconnected from active room ${code} — grace period started`);
             } else {
-                if (room.hostId === socket.id) {
-                    room.hostId = room.players[0].id;
-                    room.players[0].isHost = true;
+                // Game finished — safe to remove
+                room.players.splice(idx, 1);
+                if (room.players.length === 0) {
+                    rooms.delete(code);
+                } else {
+                    if (room.hostId === socket.id) {
+                        room.hostId = room.players[0].id;
+                        room.players[0].isHost = true;
+                    }
+                    io.to(code).emit('room-update', { room });
+                    io.to(code).emit('player-left', { playerId: socket.id });
                 }
-                io.to(code).emit('room-update', { room });
-                io.to(code).emit('player-left', { playerId: socket.id });
             }
         }
     });
