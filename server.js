@@ -113,14 +113,42 @@ io.on('connection', (socket) => {
         console.log(`Game started in room ${code}`);
     });
 
-    // Generic game action relay (turn-based, input sync, etc.)
+    // Generic game action relay — direct socket targeting for reliability
     socket.on('game-action', ({ roomCode, action }) => {
-        socket.to(roomCode.toUpperCase()).emit('game-action', { playerId: socket.id, action });
+        const code = roomCode.toUpperCase();
+        const room = rooms.get(code);
+        if (!room) {
+            // Fallback: broadcast to Socket.IO room if we can't find the room
+            socket.to(code).emit('game-action', { playerId: socket.id, action });
+            return;
+        }
+        // Send directly to each other player's tracked socket ID
+        let sent = 0;
+        room.players.forEach(p => {
+            if (p.id === socket.id) return; // skip sender
+            const target = io.sockets.sockets.get(p.id);
+            if (target) {
+                target.emit('game-action', { playerId: socket.id, action });
+                sent++;
+            } else {
+                console.warn(`  [relay] socket for ${p.name}(${p.id}) not found, using room broadcast`);
+                socket.to(code).emit('game-action', { playerId: socket.id, action });
+            }
+        });
     });
 
     // Host broadcasts full game state (real-time games)
     socket.on('game-state', ({ roomCode, state }) => {
-        socket.to(roomCode.toUpperCase()).emit('game-state', { state });
+        const code = roomCode.toUpperCase();
+        const room = rooms.get(code);
+        if (room) {
+            room.players.forEach(p => {
+                if (p.id === socket.id) return;
+                io.sockets.sockets.get(p.id)?.emit('game-state', { state });
+            });
+        } else {
+            socket.to(code).emit('game-state', { state });
+        }
     });
 
     socket.on('game-end', ({ roomCode, results }) => {
@@ -148,7 +176,9 @@ io.on('connection', (socket) => {
     });
 
     socket.on('chat-message', ({ roomCode, message, playerName }) => {
-        io.to(roomCode.toUpperCase()).emit('chat-message', {
+        // Use socket.to() (not io.to()) so sender doesn't receive echo
+        // The sender already adds the message locally in game-client.js
+        socket.to(roomCode.toUpperCase()).emit('chat-message', {
             playerName,
             message,
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
