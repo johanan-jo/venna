@@ -34,16 +34,30 @@
                     <p style="color:var(--text-muted);margin-bottom:4px" id="endSubtitle"></p>
                     <ul class="results-list" id="resultsList"></ul>
                     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:8px">
-                        <button class="btn btn-primary" id="playAgainBtn" onclick="requestPlayAgain()">🔄 Play
+                        <button class="btn btn-primary" id="playAgainBtn" onclick="requestPlayAgain()">✅ Play
                             Again</button>
                         <button class="btn btn-secondary" onclick="location.href='/'">Browse Games</button>
                     </div>
-                    <!-- Shown to guests while waiting for host to restart -->
                     <div id="waitingRematch"
                         style="display:none;margin-top:14px;color:var(--text-muted);font-size:13px;align-items:center;gap:8px;justify-content:center">
                         <div class="spinner" style="width:16px;height:16px;border-width:2px"></div>
-                        Waiting for host to start a rematch…
+                        Waiting for all players to ready up…
                     </div>
+                </div>
+            </div>
+
+            <!-- Opponent left overlay -->
+            <div class="overlay" id="overlayOpponentLeft" style="display:none">
+                <div class="overlay-box" style="text-align:center">
+                    <div style="font-size:48px">😢</div>
+                    <h2 style="margin:12px 0 8px">Opponent Left</h2>
+                    <p style="color:var(--text-muted);margin-bottom:20px">
+                        <strong id="opponentLeftName">Your opponent</strong> has disconnected from the game.
+                    </p>
+                    <div class="spinner" style="margin:0 auto 16px"></div>
+                    <p style="color:var(--text-muted);font-size:13px">Returning to home in 4 seconds…</p>
+                    <button class="btn btn-secondary" style="margin-top:16px" onclick="location.href='/'">Go Home
+                        Now</button>
                 </div>
             </div>
         </div>

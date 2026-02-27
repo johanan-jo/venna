@@ -24,6 +24,7 @@
     const overlayCountdown = document.getElementById('overlayCountdown');
     const overlayEnd = document.getElementById('overlayEnd');
     const waitingRematch = document.getElementById('waitingRematch');
+    const overlayOpponentLeft = document.getElementById('overlayOpponentLeft');
 
     function setStatus(msg) {
         document.getElementById('gameStatus').textContent = msg;
@@ -109,6 +110,24 @@
         startGameCountdown();
     });
 
+    // Update vote counter on end overlay
+    socket.on('play-again-vote', ({ votes, total }) => {
+        const btn = document.getElementById('playAgainBtn');
+        if (btn) btn.textContent = `✅ Ready (${votes}/${total})`;
+    });
+
+    socket.on('opponent-left', ({ playerName }) => {
+        // Stop any running game
+        if (gameCleanup) { gameCleanup(); gameCleanup = null; }
+        // Show the opponent-left overlay
+        overlayEnd.style.display = 'none';
+        if (overlayOpponentLeft) {
+            document.getElementById('opponentLeftName').textContent = playerName;
+            overlayOpponentLeft.style.display = 'flex';
+        }
+        setTimeout(() => { location.href = '/'; }, 4000);
+    });
+
     socket.on('chat-message', ({ playerName, message, time }) => {
         addChatMessage(playerName, message, time);
     });
@@ -186,16 +205,15 @@
         <span class="result-score">${r.score || 0}</span>
       </li>`;
         }).join('');
-        document.getElementById('playAgainBtn').style.display = isHost ? '' : 'none';
-        // Guests see a "waiting for host" indicator
-        waitingRematch.style.display = isHost ? 'none' : 'flex';
+        document.getElementById('playAgainBtn').style.display = '';
+        document.getElementById('playAgainBtn').textContent = '✅ Play Again';
+        // Hide waiting rematch spinner (not used in mutual vote model)
+        waitingRematch.style.display = 'none';
     }
 
     window.requestPlayAgain = function () {
-        if (!isHost) return;
-        // Hide play-again button, show spinner for consistency while server responds
-        document.getElementById('playAgainBtn').style.display = 'none';
-        waitingRematch.style.display = 'flex';
+        const btn = document.getElementById('playAgainBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Waiting…'; }
         socket.emit('play-again', { roomCode });
     };
 

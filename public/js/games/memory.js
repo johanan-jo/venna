@@ -8,12 +8,9 @@
         const W = canvas.width, H = canvas.height;
         const N = 16; // 4x4 grid
         const pairs = EMOJIS.slice(0, N / 2);
-        let deck = [...pairs, ...pairs].map((e, i) => ({ emoji: e, id: i, flipped: false, matched: false }));
-        // Shuffle (host controls initial state)
-        if (isHost) {
-            for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[deck[i], deck[j]] = [deck[j], deck[i]]; }
-            socket.emit('game-action', { roomCode, action: { type: 'init', deck: deck.map(c => c.emoji) } });
-        }
+
+        // Start with a placeholder deck; will be replaced once init action received
+        let deck = [];
 
         const scores = {};
         players.forEach(p => scores[p.id] = 0);
@@ -25,19 +22,44 @@
         const PAD = 20;
         const CW = (W - PAD * 2) / COLS, CH = (H - PAD * 2 - 50) / ROWS;
 
+        function buildDeck(emojis) {
+            return emojis.map((e, i) => ({ emoji: e, id: i, flipped: false, matched: false }));
+        }
+
+        // Host creates and broadcasts the canonical shuffled order; then also uses it locally
+        if (isHost) {
+            const pool = [...pairs, ...pairs];
+            for (let i = pool.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [pool[i], pool[j]] = [pool[j], pool[i]];
+            }
+            deck = buildDeck(pool);
+            // Emit BEFORE adding listener so guest receives correct order
+            socket.emit('game-action', { roomCode, action: { type: 'init', deck: pool } });
+        }
+
         function cardRect(i) {
             return { x: PAD + (i % COLS) * CW, y: 50 + PAD + Math.floor(i / COLS) * CH, w: CW - 6, h: CH - 6 };
         }
 
         function draw() {
             ctx.fillStyle = '#0d0f1a'; ctx.fillRect(0, 0, W, H);
-            // Status
+
+            // Score row
             ctx.font = '15px Inter'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = '#7986a8';
             players.forEach((p, i) => { ctx.fillText(`${p.name}: ${scores[p.id] || 0}`, 10 + i * 140, 6); });
+
+            // Turn indicator
             const isMyTurn = players[turnIdx % players.length]?.id === myPlayerId;
             ctx.textAlign = 'center';
             ctx.fillStyle = isMyTurn ? '#10b981' : '#7986a8';
             ctx.fillText(isMyTurn ? 'Your turn!' : `${players[turnIdx % players.length]?.name}'s turn`, W / 2, 6);
+
+            if (deck.length === 0) {
+                ctx.fillStyle = '#7986a8'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('Waiting for game to start…', W / 2, H / 2);
+                return;
+            }
 
             deck.forEach((card, i) => {
                 const { x, y, w, h } = cardRect(i);
@@ -64,17 +86,19 @@
         function checkEnd() {
             if (deck.every(c => c.matched) && !over) {
                 over = true;
-                const maxScore = Math.max(...Object.values(scores));
                 const results = players.map(p => ({ playerId: p.id, score: scores[p.id] || 0 }));
                 setTimeout(() => window.vennaEndGame(results), 1000);
             }
         }
 
         function handleClick(e) {
-            if (locked || over) return;
+            if (locked || over || deck.length === 0) return;
             if (players[turnIdx % players.length]?.id !== myPlayerId) return;
             const rect = canvas.getBoundingClientRect();
-            const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mx = (e.clientX - rect.left) * scaleX;
+            const my = (e.clientY - rect.top) * scaleY;
             for (let i = 0; i < deck.length; i++) {
                 const { x, y, w, h } = cardRect(i);
                 if (mx >= x && mx <= x + w && my >= y && my <= y + h && !deck[i].matched && !deck[i].flipped && !selected.includes(i)) {
@@ -87,6 +111,9 @@
         }
 
         function applyFlip({ idx }) {
+            if (!deck[idx] || deck[idx].matched || deck[idx].flipped) return;
+            // Mark as flipped so both players see it revealed
+            deck[idx].flipped = true;
             selected.push(idx);
             draw();
             if (selected.length === 2) {
@@ -95,10 +122,12 @@
                     const [a, b] = selected;
                     if (deck[a].emoji === deck[b].emoji) {
                         deck[a].matched = deck[b].matched = true;
+                        deck[a].flipped = deck[b].flipped = false;
                         const pId = players[turnIdx % players.length]?.id;
                         scores[pId] = (scores[pId] || 0) + 1;
                         // Same player goes again
                     } else {
+                        deck[a].flipped = deck[b].flipped = false;
                         turnIdx++;
                     }
                     selected = [];
@@ -110,8 +139,13 @@
         }
 
         socket.on('game-action', ({ action }) => {
-            if (action.type === 'init') { deck = action.deck.map((e, i) => ({ emoji: e, id: i, flipped: false, matched: false })); draw(); }
-            else if (action.type === 'flip') applyFlip(action);
+            if (action.type === 'init') {
+                // Both host and guest sync from canonical deck order
+                deck = buildDeck(action.deck);
+                draw();
+            } else if (action.type === 'flip') {
+                applyFlip(action);
+            }
         });
 
         canvas.addEventListener('click', handleClick);

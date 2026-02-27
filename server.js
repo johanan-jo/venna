@@ -156,7 +156,7 @@ io.on('connection', (socket) => {
         const room = rooms.get(code);
         if (room) {
             room.status = 'finished';
-            // Update scores
+            room.playAgainVotes = new Set(); // reset votes on new game-end
             if (results) {
                 results.forEach(r => {
                     const p = room.players.find(p => p.id === r.playerId);
@@ -167,12 +167,24 @@ io.on('connection', (socket) => {
         io.to(code).emit('game-end', { results, room });
     });
 
+    // Vote-based play-again: game restarts when ALL connected players have voted
     socket.on('play-again', ({ roomCode }) => {
         const code = roomCode.toUpperCase();
         const room = rooms.get(code);
-        if (!room || room.hostId !== socket.id) return;
-        room.status = 'waiting';
-        io.to(code).emit('play-again', { room });
+        if (!room) return;
+        if (!room.playAgainVotes) room.playAgainVotes = new Set();
+        room.playAgainVotes.add(socket.id);
+        // Broadcast current vote count so clients can show progress
+        io.to(code).emit('play-again-vote', {
+            votes: room.playAgainVotes.size,
+            total: room.players.length,
+        });
+        // Start rematch when everyone has voted
+        if (room.playAgainVotes.size >= room.players.length) {
+            room.status = 'waiting';
+            room.playAgainVotes = new Set();
+            io.to(code).emit('play-again', { room });
+        }
     });
 
     socket.on('chat-message', ({ roomCode, message, playerName }) => {
@@ -191,12 +203,25 @@ io.on('connection', (socket) => {
             const idx = room.players.findIndex(p => p.id === socket.id);
             if (idx === -1) continue;
 
-            if (room.status === 'waiting' || room.status === 'in-progress') {
-                // Player is probably just navigating between lobby and game page.
-                // Keep them in room.players so rejoin-room can find them by name.
-                // Schedule cleanup in case they truly left.
+            if (room.status === 'waiting') {
+                // Player navigating — keep them for rejoin, schedule grace cleanup
                 scheduleRoomDelete(code, 20000);
-                console.log(`Player ${socket.id} disconnected from active room ${code} — grace period started`);
+                console.log(`Player ${socket.id} disconnected from waiting room ${code} — grace period started`);
+            } else if (room.status === 'in-progress') {
+                // Mid-game disconnect — tell remaining players and let them go home
+                const leftPlayer = room.players[idx];
+                room.players.splice(idx, 1);
+                console.log(`Player ${socket.id} left active game in room ${code}`);
+                if (room.players.length === 0) {
+                    rooms.delete(code);
+                } else {
+                    if (room.hostId === socket.id) {
+                        room.hostId = room.players[0].id;
+                        room.players[0].isHost = true;
+                    }
+                    io.to(code).emit('opponent-left', { playerName: leftPlayer?.name || 'Opponent' });
+                    scheduleRoomDelete(code, 30000);
+                }
             } else {
                 // Game finished — safe to remove
                 room.players.splice(idx, 1);
