@@ -18,6 +18,8 @@ function generateCode() {
 
 // Grace period timers — prevent rooms from being deleted during page navigation
 const roomDeleteTimers = new Map();
+// Per-player leave timers — for in-progress games, wait before emitting opponent-left
+const playerLeaveTimers = new Map(); // key: socket.id
 
 function scheduleRoomDelete(code, delay = 15000) {
     if (roomDeleteTimers.has(code)) clearTimeout(roomDeleteTimers.get(code));
@@ -35,6 +37,13 @@ function cancelRoomDelete(code) {
     if (roomDeleteTimers.has(code)) {
         clearTimeout(roomDeleteTimers.get(code));
         roomDeleteTimers.delete(code);
+    }
+}
+
+function cancelPlayerLeave(socketId) {
+    if (playerLeaveTimers.has(socketId)) {
+        clearTimeout(playerLeaveTimers.get(socketId));
+        playerLeaveTimers.delete(socketId);
     }
 }
 
@@ -88,6 +97,8 @@ io.on('connection', (socket) => {
 
         const existing = room.players.find(p => p.name === playerName);
         if (existing) {
+            // Cancel any pending "player truly left" timer for the old socket
+            cancelPlayerLeave(existing.id);
             // Check host BEFORE overwriting the id
             const wasHost = room.hostId === existing.id;
             existing.id = socket.id;
@@ -204,26 +215,40 @@ io.on('connection', (socket) => {
             if (idx === -1) continue;
 
             if (room.status === 'waiting') {
-                // Player navigating — keep them for rejoin, schedule grace cleanup
+                // Player likely navigating lobby→game — keep in room, schedule cleanup
                 scheduleRoomDelete(code, 20000);
                 console.log(`Player ${socket.id} disconnected from waiting room ${code} — grace period started`);
+
             } else if (room.status === 'in-progress') {
-                // Mid-game disconnect — tell remaining players and let them go home
+                // Give a 20s grace window for page navigation.
+                // Only emit opponent-left if they don't rejoin within that window.
                 const leftPlayer = room.players[idx];
-                room.players.splice(idx, 1);
-                console.log(`Player ${socket.id} left active game in room ${code}`);
-                if (room.players.length === 0) {
-                    rooms.delete(code);
-                } else {
-                    if (room.hostId === socket.id) {
-                        room.hostId = room.players[0].id;
-                        room.players[0].isHost = true;
+                const oldSocketId = socket.id;
+                console.log(`Player ${oldSocketId} (${leftPlayer.name}) disconnected from in-progress room ${code} — grace period started`);
+
+                const timer = setTimeout(() => {
+                    playerLeaveTimers.delete(oldSocketId);
+                    // If the player entry still has the old socket ID, they truly left
+                    const stillThere = room.players.find(p => p.name === leftPlayer.name);
+                    if (stillThere && stillThere.id === oldSocketId) {
+                        room.players.splice(room.players.indexOf(stillThere), 1);
+                        console.log(`Player ${leftPlayer.name} confirmed left room ${code}`);
+                        if (room.players.length === 0) {
+                            rooms.delete(code);
+                        } else {
+                            if (room.hostId === oldSocketId) {
+                                room.hostId = room.players[0].id;
+                                room.players[0].isHost = true;
+                            }
+                            io.to(code).emit('opponent-left', { playerName: leftPlayer.name });
+                            scheduleRoomDelete(code, 30000);
+                        }
                     }
-                    io.to(code).emit('opponent-left', { playerName: leftPlayer?.name || 'Opponent' });
-                    scheduleRoomDelete(code, 30000);
-                }
+                }, 20000);
+                playerLeaveTimers.set(oldSocketId, timer);
+
             } else {
-                // Game finished — safe to remove
+                // Game finished — safe to remove immediately
                 room.players.splice(idx, 1);
                 if (room.players.length === 0) {
                     rooms.delete(code);
