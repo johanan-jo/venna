@@ -33,10 +33,16 @@
                     <h2 id="endTitle">Game Over!</h2>
                     <p style="color:var(--text-muted);margin-bottom:4px" id="endSubtitle"></p>
                     <ul class="results-list" id="resultsList"></ul>
-                    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-                        <button class="btn btn-primary" id="playAgainBtn" onclick="requestPlayAgain()">Play
+                    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:8px">
+                        <button class="btn btn-primary" id="playAgainBtn" onclick="requestPlayAgain()">🔄 Play
                             Again</button>
                         <button class="btn btn-secondary" onclick="location.href='/'">Browse Games</button>
+                    </div>
+                    <!-- Shown to guests while waiting for host to restart -->
+                    <div id="waitingRematch"
+                        style="display:none;margin-top:14px;color:var(--text-muted);font-size:13px;align-items:center;gap:8px;justify-content:center">
+                        <div class="spinner" style="width:16px;height:16px;border-width:2px"></div>
+                        Waiting for host to start a rematch…
                     </div>
                 </div>
             </div>

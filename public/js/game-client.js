@@ -23,6 +23,7 @@
     const overlayLoading = document.getElementById('overlayLoading');
     const overlayCountdown = document.getElementById('overlayCountdown');
     const overlayEnd = document.getElementById('overlayEnd');
+    const waitingRematch = document.getElementById('waitingRematch');
 
     function setStatus(msg) {
         document.getElementById('gameStatus').textContent = msg;
@@ -103,6 +104,7 @@
         currentRoom = room;
         isHost = room.hostId === myPlayerId;
         overlayEnd.style.display = 'none';
+        waitingRematch.style.display = 'none';
         if (gameCleanup) { gameCleanup(); gameCleanup = null; }
         startGameCountdown();
     });
@@ -185,10 +187,15 @@
       </li>`;
         }).join('');
         document.getElementById('playAgainBtn').style.display = isHost ? '' : 'none';
+        // Guests see a "waiting for host" indicator
+        waitingRematch.style.display = isHost ? 'none' : 'flex';
     }
 
     window.requestPlayAgain = function () {
         if (!isHost) return;
+        // Hide play-again button, show spinner for consistency while server responds
+        document.getElementById('playAgainBtn').style.display = 'none';
+        waitingRematch.style.display = 'flex';
         socket.emit('play-again', { roomCode });
     };
 
