@@ -1,4 +1,5 @@
 // Archery Master — 5 rounds, wind wobble, most points wins (2-4 players)
+// Edge Cases: wind locked at release, Robin Hood double-hit bonus
 (function () {
     const G = window.VennaGames = window.VennaGames || {};
 
@@ -101,13 +102,25 @@
             const cur = cursors[myIdx];
             if (cur.locked) return;
             cur.locked = true;
+            // ── Lock wind at the moment of release (not during flight)
+            const lockedWind = { ...wind };
             const ax = cur.x, ay = cur.y;
             const cx = 0.5, cy = 0.5;
             const dist = Math.hypot(ax - cx, ay - cy) * targetR * 2.5;
-            const pts = scoreForDist(dist, targetR);
-            cur.arrowX = ax; cur.arrowY = ay; cur.result = pts;
+            let pts = scoreForDist(dist, targetR);
+
+            // ── Robin Hood double-hit: check if another arrow already landed nearby
+            const ROBIN_DIST = 8; // pixels in board space
+            const prevArrows = cursors.filter((c, i) => i !== myIdx && c.locked && c.arrowX !== undefined);
+            const robinHood = prevArrows.some(c => {
+                const px = c.arrowX, py = c.arrowY;
+                return Math.hypot((ax - px) * targetR * 2.5, (ay - py) * targetR * 2.5) < ROBIN_DIST;
+            });
+            if (robinHood && pts > 0) pts += 1; // Robin Hood bonus
+
+            cur.arrowX = ax; cur.arrowY = ay; cur.result = pts; cur.robbinHood = robinHood;
             scores[myIdx] += pts;
-            socket.emit('game-action', { roomCode, action: { type: 'fire', pi: myIdx, ax, ay, pts } });
+            socket.emit('game-action', { roomCode, action: { type: 'fire', pi: myIdx, ax, ay, pts, robinHood } });
             checkRoundEnd();
         }
 
@@ -129,7 +142,8 @@
         socket.on('game-action', ({ action }) => {
             if (action.type === 'fire') {
                 const cur = cursors[action.pi];
-                cur.locked = true; cur.arrowX = action.ax; cur.arrowY = action.ay; cur.result = action.pts;
+                cur.locked = true; cur.arrowX = action.ax; cur.arrowY = action.ay;
+                cur.result = action.pts; cur.robinHood = action.robinHood;
                 scores[action.pi] += action.pts;
                 checkRoundEnd();
             }

@@ -1,4 +1,5 @@
 // Snakes — Multiplayer Snake (2-4 players)
+// Edge Case: head-on collision → both snakes die (checked THIS frame before resolution)
 (function () {
     const G = window.VennaGames = window.VennaGames || {};
     const COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
@@ -39,8 +40,6 @@
                 ctx.fillRect(x * GRID + GRID / 2 - 1, y * GRID + GRID / 2 - 1, 2, 2);
             }
             // Food
-            ctx.fillStyle = '#facc15'; ctx.beginPath();
-            ctx.arc(food.x * GRID + GRID / 2, food.y * GRID + GRID / 2, GRID / 2 - 2, 0, Math.PI * 2); ctx.fill();
             ctx.font = `${GRID - 2}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText('⭐', food.x * GRID + GRID / 2, food.y * GRID + GRID / 2);
             // Snakes
@@ -77,18 +76,57 @@
 
         function step() {
             if (over) return;
+
+            // ── Compute all next heads FIRST, before resolving deaths
+            const nextHeads = snakes.map(sn => {
+                if (!sn.alive) return null;
+                return { x: sn.body[0].x + sn.dx, y: sn.body[0].y + sn.dy };
+            });
+
+            // ── Head-on collision detection: if two alive snakes move to the same cell,
+            //    mark BOTH for death before any body updates happen
+            const collideSet = new Set();
+            for (let i = 0; i < nP; i++) {
+                if (!nextHeads[i] || !snakes[i].alive) continue;
+                for (let j = i + 1; j < nP; j++) {
+                    if (!nextHeads[j] || !snakes[j].alive) continue;
+                    if (nextHeads[i].x === nextHeads[j].x && nextHeads[i].y === nextHeads[j].y) {
+                        // Head-on: both die
+                        collideSet.add(i);
+                        collideSet.add(j);
+                    }
+                }
+            }
+            // Also mark head-to-body collisions (checked AFTER head-on, not before)
             snakes.forEach((sn, i) => {
-                if (!sn.alive) return;
-                const head = { x: sn.body[0].x + sn.dx, y: sn.body[0].y + sn.dy };
-                // Wall check
-                if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) { sn.alive = false; return; }
-                // Self/other collision
-                const hit = snakes.some((s2, j) => s2.body.some(seg => seg.x === head.x && seg.y === head.y));
-                if (hit) { sn.alive = false; return; }
+                if (!sn.alive || !nextHeads[i] || collideSet.has(i)) return;
+                const head = nextHeads[i];
+                // Wall
+                if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
+                    collideSet.add(i); return;
+                }
+                // Head into any body segment (including own body, excluding own neck)
+                for (let j = 0; j < nP; j++) {
+                    const start = (j === i) ? 1 : 0; // skip own head
+                    const bodyToCheck = snakes[j].body.slice(start);
+                    if (bodyToCheck.some(seg => seg.x === head.x && seg.y === head.y)) {
+                        collideSet.add(i); break;
+                    }
+                }
+            });
+
+            // Apply deaths
+            collideSet.forEach(i => { snakes[i].alive = false; });
+
+            // Move surviving snakes
+            snakes.forEach((sn, i) => {
+                if (!sn.alive || collideSet.has(i)) return;
+                const head = nextHeads[i];
                 sn.body.unshift(head);
                 if (head.x === food.x && head.y === food.y) { sn.score++; spawnFood(); }
                 else sn.body.pop();
             });
+
             const aliveCount = snakes.filter(s => s.alive).length;
             if (aliveCount <= (nP > 1 ? 1 : 0) && !over) {
                 over = true;
@@ -106,9 +144,8 @@
             const d = dirs[e.key];
             if (!d) return;
             if (d[0] === -sn.dx && d[1] === -sn.dy) return; // can't reverse
-            const action = { type: 'dir', dx: d[0], dy: d[1] };
             sn.dx = d[0]; sn.dy = d[1];
-            socket.emit('game-action', { roomCode, action: { ...action, pi: myIdx } });
+            socket.emit('game-action', { roomCode, action: { type: 'dir', dx: d[0], dy: d[1], pi: myIdx } });
         }
 
         socket.on('game-action', ({ action }) => {

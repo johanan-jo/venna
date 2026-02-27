@@ -1,4 +1,5 @@
 // Paint Fight / Color Wars — Paint the floor, most % of area wins (2-4 players)
+// Edge Cases: Pixel Majority Tie → Sudden Death (next pixel painted wins)
 (function () {
     const G = window.VennaGames = window.VennaGames || {};
 
@@ -10,53 +11,57 @@
             const myIdx = ids.indexOf(myPlayerId);
             const nP = Math.min(players.length, 4);
             const COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
-            const HEX = [0xef4444, 0x3b82f6, 0x10b981, 0xf59e0b];
+            // Pre-parsed RGB for fast pixel comparison
+            const RGBS = [[239, 68, 68], [59, 130, 246], [16, 185, 129], [245, 158, 11]];
             const DURATION = 30, SPEED = 200, PAINT_R = 16;
-
-            const STARTS = [
-                { x: 60, y: 60 }, { x: W - 60, y: H - 60 },
-                { x: W - 60, y: 60 }, { x: 60, y: H - 60 },
-            ];
+            const STARTS = [{ x: 60, y: 60 }, { x: W - 60, y: H - 60 }, { x: W - 60, y: 60 }, { x: 60, y: H - 60 }];
 
             let positions = Array(nP).fill(null).map((_, i) => ({ ...STARTS[i] }));
             let keys = {};
             let elapsed = 0, lastTs = null, animId = null, over = false;
+            let suddenDeath = false, suddenDeathWinner = -1;
 
-            // Offscreen pixel canvas for tracking paint
             const offCanvas = document.createElement('canvas');
             offCanvas.width = W; offCanvas.height = H;
             const offCtx = offCanvas.getContext('2d');
-            offCtx.fillStyle = '#0d0f1a'; offCtx.fillRect(0, 0, W, H);
+            offCtx.fillStyle = '#111827'; offCtx.fillRect(0, 0, W, H); // distinct bg colour
 
             function paintAt(x, y, colorIdx) {
                 offCtx.beginPath();
                 offCtx.arc(x, y, PAINT_R, 0, Math.PI * 2);
                 offCtx.fillStyle = COLORS[colorIdx]; offCtx.fill();
+
+                // ── Sudden Death: the first paint after tie is declared wins
+                if (suddenDeath && suddenDeathWinner === -1) {
+                    suddenDeathWinner = colorIdx;
+                    over = true;
+                    cancelAnimationFrame(animId);
+                    const results = players.map((p, i) => ({ playerId: p.id, score: i === colorIdx ? 999 : 0 }));
+                    setTimeout(() => window.vennaEndGame(results), 600);
+                }
             }
 
             function countPaint() {
                 const data = offCtx.getImageData(0, 0, W, H).data;
                 const counts = Array(nP).fill(0);
-                let painted = 0;
+                let total = 0;
                 for (let i = 0; i < data.length; i += 4) {
-                    const r = data[i], g = data[i + 1], b = data[i + 2];
-                    if (r === 0x0d && g === 0x0f && b === 0x1a) continue;
-                    painted++;
+                    const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+                    if (a < 200) continue;
                     for (let pi = 0; pi < nP; pi++) {
-                        const hr = (HEX[pi] >> 16) & 0xff;
-                        const hg = (HEX[pi] >> 8) & 0xff;
-                        const hb = HEX[pi] & 0xff;
-                        if (Math.abs(r - hr) < 20 && Math.abs(g - hg) < 20 && Math.abs(b - hb) < 20) { counts[pi]++; break; }
+                        const [cr, cg, cb] = RGBS[pi];
+                        if (Math.abs(r - cr) < 25 && Math.abs(g - cg) < 25 && Math.abs(b - cb) < 25) {
+                            counts[pi]++; total++; break;
+                        }
                     }
                 }
-                return counts;
+                return { counts, total };
             }
 
             function draw() {
-                ctx.fillStyle = '#0d0f1a'; ctx.fillRect(0, 0, W, H);
+                ctx.fillStyle = '#111827'; ctx.fillRect(0, 0, W, H);
                 ctx.drawImage(offCanvas, 0, 0);
 
-                // Player tokens
                 positions.forEach((p, i) => {
                     ctx.beginPath(); ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
                     ctx.fillStyle = COLORS[i]; ctx.fill();
@@ -65,11 +70,14 @@
                     ctx.fillText(players[i].name.slice(0, 2).toUpperCase(), p.x, p.y);
                 });
 
-                // Timer + controls hint
                 const timeLeft = Math.max(0, DURATION - elapsed);
                 ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, W, 28);
-                ctx.font = 'bold 13px Inter'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                ctx.fillText(`⏱ ${timeLeft.toFixed(1)}s  |  WASD or Arrow keys to move and paint!`, W / 2, 14);
+                ctx.font = 'bold 13px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                if (suddenDeath) {
+                    ctx.fillStyle = '#ef4444'; ctx.fillText('⚡ SUDDEN DEATH! Next pixel wins!', W / 2, 14);
+                } else {
+                    ctx.fillStyle = '#fff'; ctx.fillText(`⏱ ${timeLeft.toFixed(1)}s  |  WASD / arrows to move and paint`, W / 2, 14);
+                }
             }
 
             let syncTimer = 0;
@@ -97,29 +105,36 @@
                     socket.emit('game-action', { roomCode, action: { type: 'move', pi: myIdx, x: me.x, y: me.y } });
                 }
 
-                if (elapsed >= DURATION) {
+                if (elapsed >= DURATION && !over && !suddenDeath) {
+                    // Count pixels to detect tie
+                    const { counts, total } = countPaint();
+                    if (total > 0 && nP === 2) {
+                        const diff = Math.abs(counts[0] - counts[1]);
+                        const pct = diff / total;
+                        if (pct < 0.001) {
+                            // ── Pixel majority tie: enter sudden death
+                            suddenDeath = true;
+                            socket.emit('game-action', { roomCode, action: { type: 'sudden-death' } });
+                            draw(); animId = requestAnimationFrame(loop); return;
+                        }
+                    }
                     over = true; cancelAnimationFrame(animId);
-                    const counts = countPaint();
-                    draw();
-                    const results = players.map((p, i) => ({ playerId: p.id, score: counts[i] }));
-                    setTimeout(() => window.vennaEndGame(results), 800); return;
+                    const { counts: c } = countPaint();
+                    const results = players.map((p, i) => ({ playerId: p.id, score: c[i] || 0 }));
+                    draw(); setTimeout(() => window.vennaEndGame(results), 500); return;
                 }
 
-                draw();
-                animId = requestAnimationFrame(loop);
+                draw(); animId = requestAnimationFrame(loop);
             }
 
-            function onKey(e, down) {
-                keys[e.key] = down;
-                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
-            }
+            function onKey(e, down) { keys[e.key] = down; if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault(); }
 
             socket.on('game-action', ({ action }) => {
                 if (action.type === 'move') {
-                    positions[action.pi].x = action.x;
-                    positions[action.pi].y = action.y;
+                    positions[action.pi].x = action.x; positions[action.pi].y = action.y;
                     paintAt(action.x, action.y, action.pi);
                 }
+                if (action.type === 'sudden-death') suddenDeath = true;
             });
 
             document.addEventListener('keydown', e => onKey(e, true));
