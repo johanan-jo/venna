@@ -26,16 +26,44 @@
             return emojis.map((e, i) => ({ emoji: e, id: i, flipped: false, matched: false }));
         }
 
-        // Host creates and broadcasts the canonical shuffled order; then also uses it locally
+        // Canonical pool (host-created). Stored so host can re-send on request.
+        let canonicalPool = null;
+
+        // Set up the socket listener FIRST so we never miss an incoming event
+        socket.on('game-action', ({ action }) => {
+            if (action.type === 'init') {
+                // Sync canonical deck order (both host — after rebuild — and guests)
+                canonicalPool = action.deck;
+                deck = buildDeck(action.deck);
+                draw();
+            } else if (action.type === 'flip') {
+                applyFlip(action);
+            } else if (action.type === 'request-deck') {
+                // Guest is asking host to re-send the deck (race condition recovery)
+                if (isHost && canonicalPool) {
+                    socket.emit('game-action', { roomCode, action: { type: 'init', deck: canonicalPool } });
+                }
+            }
+        });
+
         if (isHost) {
+            // Host shuffles, stores, and broadcasts the canonical deck
             const pool = [...pairs, ...pairs];
             for (let i = pool.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [pool[i], pool[j]] = [pool[j], pool[i]];
             }
+            canonicalPool = pool;
             deck = buildDeck(pool);
-            // Emit BEFORE adding listener so guest receives correct order
-            socket.emit('game-action', { roomCode, action: { type: 'init', deck: pool } });
+            // Small delay so guests' listeners are ready before we emit
+            setTimeout(() => {
+                socket.emit('game-action', { roomCode, action: { type: 'init', deck: pool } });
+            }, 300);
+        } else {
+            // Guest: request deck from host (handles case where init was emitted before we joined)
+            setTimeout(() => {
+                socket.emit('game-action', { roomCode, action: { type: 'request-deck' } });
+            }, 500);
         }
 
         function cardRect(i) {
@@ -137,16 +165,6 @@
                 }, 900);
             }
         }
-
-        socket.on('game-action', ({ action }) => {
-            if (action.type === 'init') {
-                // Both host and guest sync from canonical deck order
-                deck = buildDeck(action.deck);
-                draw();
-            } else if (action.type === 'flip') {
-                applyFlip(action);
-            }
-        });
 
         canvas.addEventListener('click', handleClick);
         draw();

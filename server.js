@@ -198,6 +198,30 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Explicit leave — emitted before page navigation so we don't wait for disconnect grace period
+    socket.on('leave-game', ({ roomCode }) => {
+        const code = (roomCode || '').toUpperCase();
+        const room = rooms.get(code);
+        if (!room) return;
+        const idx = room.players.findIndex(p => p.id === socket.id);
+        if (idx === -1) return;
+        const leftPlayer = room.players[idx];
+        // Cancel any pending leave timer for this socket
+        cancelPlayerLeave(socket.id);
+        room.players.splice(idx, 1);
+        console.log(`Player ${leftPlayer.name} explicitly left room ${code}`);
+        if (room.players.length === 0) {
+            rooms.delete(code);
+        } else {
+            if (room.hostId === socket.id) {
+                room.hostId = room.players[0].id;
+                room.players[0].isHost = true;
+            }
+            io.to(code).emit('opponent-left', { playerName: leftPlayer.name });
+            scheduleRoomDelete(code, 30000);
+        }
+    });
+
     socket.on('chat-message', ({ roomCode, message, playerName }) => {
         // Use socket.to() (not io.to()) so sender doesn't receive echo
         // The sender already adds the message locally in game-client.js
@@ -220,32 +244,41 @@ io.on('connection', (socket) => {
                 console.log(`Player ${socket.id} disconnected from waiting room ${code} — grace period started`);
 
             } else if (room.status === 'in-progress') {
-                // Give a 20s grace window for page navigation.
-                // Only emit opponent-left if they don't rejoin within that window.
                 const leftPlayer = room.players[idx];
                 const oldSocketId = socket.id;
-                console.log(`Player ${oldSocketId} (${leftPlayer.name}) disconnected from in-progress room ${code} — grace period started`);
+                const isHost = room.hostId === oldSocketId;
 
-                const timer = setTimeout(() => {
-                    playerLeaveTimers.delete(oldSocketId);
-                    // If the player entry still has the old socket ID, they truly left
-                    const stillThere = room.players.find(p => p.name === leftPlayer.name);
-                    if (stillThere && stillThere.id === oldSocketId) {
-                        room.players.splice(room.players.indexOf(stillThere), 1);
-                        console.log(`Player ${leftPlayer.name} confirmed left room ${code}`);
-                        if (room.players.length === 0) {
-                            rooms.delete(code);
-                        } else {
-                            if (room.hostId === oldSocketId) {
-                                room.hostId = room.players[0].id;
-                                room.players[0].isHost = true;
-                            }
-                            io.to(code).emit('opponent-left', { playerName: leftPlayer.name });
-                            scheduleRoomDelete(code, 30000);
-                        }
+                if (isHost) {
+                    // Host leaving: notify remaining players immediately — no grace period
+                    console.log(`Host ${leftPlayer.name} disconnected from in-progress room ${code} — notifying others immediately`);
+                    room.players.splice(idx, 1);
+                    if (room.players.length === 0) {
+                        rooms.delete(code);
+                    } else {
+                        room.hostId = room.players[0].id;
+                        room.players[0].isHost = true;
+                        io.to(code).emit('opponent-left', { playerName: leftPlayer.name });
+                        scheduleRoomDelete(code, 30000);
                     }
-                }, 20000);
-                playerLeaveTimers.set(oldSocketId, timer);
+                } else {
+                    // Non-host: give a 20s grace window for page navigation.
+                    console.log(`Player ${oldSocketId} (${leftPlayer.name}) disconnected from in-progress room ${code} — grace period started`);
+                    const timer = setTimeout(() => {
+                        playerLeaveTimers.delete(oldSocketId);
+                        const stillThere = room.players.find(p => p.name === leftPlayer.name);
+                        if (stillThere && stillThere.id === oldSocketId) {
+                            room.players.splice(room.players.indexOf(stillThere), 1);
+                            console.log(`Player ${leftPlayer.name} confirmed left room ${code}`);
+                            if (room.players.length === 0) {
+                                rooms.delete(code);
+                            } else {
+                                io.to(code).emit('opponent-left', { playerName: leftPlayer.name });
+                                scheduleRoomDelete(code, 30000);
+                            }
+                        }
+                    }, 20000);
+                    playerLeaveTimers.set(oldSocketId, timer);
+                }
 
             } else {
                 // Game finished — safe to remove immediately

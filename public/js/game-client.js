@@ -217,6 +217,12 @@
         socket.emit('play-again', { roomCode });
     };
 
+    window.leaveGame = function () {
+        // Notify other players immediately before navigating away
+        socket.emit('leave-game', { roomCode });
+        setTimeout(() => { location.href = '/'; }, 150); // small delay to let event send
+    };
+
     // Chat
     function addChatMessage(sender, message, time) {
         const msgs = document.getElementById('chatMessages');

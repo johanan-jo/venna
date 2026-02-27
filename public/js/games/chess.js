@@ -19,7 +19,7 @@
     function color(p) { return p ? p[0] : null; }
     function type(p) { return p ? p[1] : null; }
 
-    function moves(board, idx, turn) {
+    function pseudoMoves(board, idx, turn) {
         const p = board[idx]; if (!p || color(p) !== turn) return [];
         const r = Math.floor(idx / 8), c = idx % 8, t = type(p), col = color(p);
         const res = [];
@@ -39,84 +39,185 @@
 
     function inCheck(board, col) {
         const ki = board.findIndex(p => p === col + 'K');
+        if (ki === -1) return false;
         const opp = col === 'w' ? 'b' : 'w';
-        return board.some((p, i) => p && color(p) === opp && moves(board, i, opp).includes(ki));
+        return board.some((p, i) => p && color(p) === opp && pseudoMoves(board, i, opp).includes(ki));
+    }
+
+    // Legal moves: pseudo-legal moves that don't leave own king in check
+    function legalMoves(board, idx, turn) {
+        return pseudoMoves(board, idx, turn).filter(to => {
+            const b2 = [...board]; b2[to] = b2[idx]; b2[idx] = null;
+            return !inCheck(b2, turn);
+        });
     }
 
     function init({ canvas, socket, roomCode, myPlayerId, players }) {
         const ctx = canvas.getContext('2d');
         const W = canvas.width, H = canvas.height;
-        const CELL = Math.min(W, H) / 9;
+        const CELL = Math.min(W, H) / 9.5;
         const OX = (W - CELL * 8) / 2, OY = (H - CELL * 8) / 2;
 
         const ids = players.map(p => p.id);
+        // Player 0 = white (host), Player 1 = black (guest)
         const myColor = ids.indexOf(myPlayerId) === 0 ? 'w' : 'b';
+        const flipped = myColor === 'b'; // Black sees board from their side
+
         let board = [...INIT];
         let turn = 'w';
         let selected = null;
         let validMoves = [];
         let over = false;
 
-        function sq(i) { return { x: OX + (i % 8) * CELL, y: OY + Math.floor(i / 8) * CELL }; }
+        // Convert logical board index to displayed row/col (flipped for black)
+        function displayRC(logicalIdx) {
+            const lr = Math.floor(logicalIdx / 8), lc = logicalIdx % 8;
+            return flipped ? { r: 7 - lr, c: 7 - lc } : { r: lr, c: lc };
+        }
+
+        function sq(logicalIdx) {
+            const { r, c } = displayRC(logicalIdx);
+            return { x: OX + c * CELL, y: OY + r * CELL };
+        }
+
+        function clickToLogical(mx, my) {
+            const dc = Math.floor((mx - OX) / CELL), dr = Math.floor((my - OY) / CELL);
+            if (dc < 0 || dc >= 8 || dr < 0 || dr >= 8) return -1;
+            const lr = flipped ? 7 - dr : dr, lc = flipped ? 7 - dc : dc;
+            return lr * 8 + lc;
+        }
 
         function draw() {
             ctx.clearRect(0, 0, W, H);
             ctx.fillStyle = '#0d0f1a'; ctx.fillRect(0, 0, W, H);
-            for (let i = 0; i < 64; i++) {
-                const { x, y } = sq(i);
-                const light = (Math.floor(i / 8) + i % 8) % 2 === 0;
-                ctx.fillStyle = validMoves.includes(i) ? '#059669' : selected === i ? '#7c3aed' : light ? '#f0d9b5' : '#b58863';
+
+            // Find checked king
+            const checkedKingIdx = inCheck(board, turn) ? board.findIndex(p => p === turn + 'K') : -1;
+
+            for (let li = 0; li < 64; li++) {
+                const { x, y } = sq(li);
+                const lr = Math.floor(li / 8), lc = li % 8;
+                const light = (lr + lc) % 2 === 0;
+
+                let fillCol;
+                if (li === checkedKingIdx) {
+                    fillCol = '#dc2626'; // red highlight for checked king
+                } else if (validMoves.includes(li)) {
+                    fillCol = '#059669';
+                } else if (selected === li) {
+                    fillCol = '#7c3aed';
+                } else {
+                    fillCol = light ? '#f0d9b5' : '#b58863';
+                }
+                ctx.fillStyle = fillCol;
                 ctx.fillRect(x, y, CELL, CELL);
-                if (board[i]) {
-                    ctx.font = `${CELL * 0.72}px serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                    ctx.fillStyle = color(board[i]) === 'w' ? '#fff' : '#111';
-                    ctx.fillText(PIECES[board[i]], x + CELL / 2, y + CELL / 2 + 2);
+
+                if (board[li]) {
+                    const pieceColor = color(board[li]);
+                    const isLight = light && selected !== li && !validMoves.includes(li) && li !== checkedKingIdx;
+
+                    // Draw piece shadow/outline for contrast
+                    ctx.font = `bold ${CELL * 0.78}px serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+
+                    // Stroke for visibility
+                    ctx.strokeStyle = pieceColor === 'w' ? '#222' : '#ddd';
+                    ctx.lineWidth = 3;
+                    ctx.lineJoin = 'round';
+                    ctx.strokeText(PIECES[board[li]], x + CELL / 2, y + CELL / 2 + 2);
+
+                    // Fill
+                    ctx.fillStyle = pieceColor === 'w' ? '#ffffff' : '#1a1a1a';
+                    ctx.fillText(PIECES[board[li]], x + CELL / 2, y + CELL / 2 + 2);
                 }
             }
-            // Coordinates
-            ctx.font = '10px Inter'; ctx.fillStyle = '#555';
-            'abcdefgh'.split('').forEach((l, i) => { ctx.textAlign = 'center'; ctx.fillText(l, OX + i * CELL + CELL / 2, OY + 8 * CELL + 10); });
-            for (let i = 0; i < 8; i++) { ctx.textAlign = 'right'; ctx.fillText(8 - i, OX - 4, OY + i * CELL + CELL / 2 + 4); }
+
+            // Coordinate labels
+            ctx.font = '10px Inter'; ctx.fillStyle = '#888';
+            const files = flipped ? 'hgfedcba' : 'abcdefgh';
+            files.split('').forEach((l, i) => {
+                ctx.textAlign = 'center';
+                ctx.fillText(l, OX + i * CELL + CELL / 2, OY + 8 * CELL + 12);
+            });
+            for (let i = 0; i < 8; i++) {
+                const rankNum = flipped ? i + 1 : 8 - i;
+                ctx.textAlign = 'right';
+                ctx.fillText(rankNum, OX - 4, OY + i * CELL + CELL / 2 + 4);
+            }
+
             // Status
             ctx.font = '15px Inter'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
             const isMyTurn = turn === myColor;
-            ctx.fillStyle = isMyTurn ? '#10b981' : '#7986a8';
-            ctx.fillText(isMyTurn ? 'Your turn ' : over ? 'Game Over' : players.find(p => p.id !== myPlayerId)?.name + "'s turn", W / 2, 4);
+            let statusText;
+            if (over) {
+                statusText = 'Game Over';
+            } else if (checkedKingIdx !== -1) {
+                statusText = isMyTurn ? '⚠ You are in CHECK!' : `⚠ ${players.find(p => p.id !== myPlayerId)?.name} is in check`;
+            } else {
+                statusText = isMyTurn ? 'Your turn' : (players.find(p => p.id !== myPlayerId)?.name + "'s turn");
+            }
+            ctx.fillStyle = over ? '#ef4444' : (checkedKingIdx !== -1 ? '#f59e0b' : (isMyTurn ? '#10b981' : '#7986a8'));
+            ctx.fillText(statusText, W / 2, 4);
+
+            // Color indicator
+            ctx.font = '12px Inter';
+            ctx.fillStyle = '#7986a8';
+            ctx.fillText(`You are ${myColor === 'w' ? 'White ♔' : 'Black ♚'}`, W / 2, H - 16);
         }
 
         function applyMove({ from, to }) {
             const p = board[from]; board[to] = p; board[from] = null;
+            // Pawn promotion
             if (type(p) === 'P' && (Math.floor(to / 8) === 0 || Math.floor(to / 8) === 7)) board[to] = color(p) + 'Q';
             turn = turn === 'w' ? 'b' : 'w';
             selected = null; validMoves = [];
             draw();
-            // Check for checkmate
-            const opp = turn;
-            const hasMove = board.some((_, i) => color(board[i]) === opp && moves(board, i, opp).length > 0);
-            if (!hasMove && !over) {
+
+            // Check for checkmate or stalemate
+            const nextTurn = turn;
+            const hasLegalMove = board.some((_, i) => color(board[i]) === nextTurn && legalMoves(board, i, nextTurn).length > 0);
+            if (!hasLegalMove && !over) {
                 over = true;
-                const loser = opp; const winner = loser === 'w' ? 'b' : 'w';
-                const wId = ids[['w', 'b'].indexOf(winner)];
-                const results = players.map(p => ({ playerId: p.id, score: p.id === wId ? 1 : 0 }));
-                setTimeout(() => window.vennaEndGame(results), 800);
+                const isCheckmate = inCheck(board, nextTurn);
+                if (isCheckmate) {
+                    // The player who just moved wins
+                    const winner = nextTurn === 'w' ? 'b' : 'w';
+                    const wId = ids[['w', 'b'].indexOf(winner)];
+                    const results = players.map(p => ({ playerId: p.id, score: p.id === wId ? 1 : 0 }));
+                    draw(); // redraw to show final state
+                    setTimeout(() => window.vennaEndGame(results), 1200);
+                } else {
+                    // Stalemate — draw
+                    const results = players.map(p => ({ playerId: p.id, score: 0 }));
+                    draw();
+                    setTimeout(() => window.vennaEndGame(results), 1200);
+                }
             }
         }
 
         function handleClick(e) {
             if (over || turn !== myColor) return;
             const rect = canvas.getBoundingClientRect();
-            const mx = e.clientX - rect.left - OX, my = e.clientY - rect.top - OY;
+            const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+            const mx = (e.clientX - rect.left) * scaleX - OX;
+            const my = (e.clientY - rect.top) * scaleY - OY;
             if (mx < 0 || my < 0 || mx > CELL * 8 || my > CELL * 8) return;
-            const c = Math.floor(mx / CELL), r = Math.floor(my / CELL), idx = r * 8 + c;
+
+            const idx = clickToLogical(mx + OX, my + OY);
+            if (idx < 0) return;
+
             if (selected !== null && validMoves.includes(idx)) {
                 const action = { type: 'move', from: selected, to: idx };
                 applyMove(action);
                 socket.emit('game-action', { roomCode, action });
             } else if (board[idx] && color(board[idx]) === myColor) {
                 selected = idx;
-                validMoves = moves(board, idx, myColor).filter(to => { const b2 = [...board]; b2[to] = b2[idx]; b2[idx] = null; return !inCheck(b2, myColor); });
+                validMoves = legalMoves(board, idx, myColor);
                 draw();
-            } else { selected = null; validMoves = []; draw(); }
+            } else {
+                selected = null; validMoves = []; draw();
+            }
         }
 
         socket.on('game-action', ({ action }) => { if (action.type === 'move') applyMove(action); });

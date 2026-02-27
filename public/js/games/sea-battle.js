@@ -114,8 +114,8 @@
                     const row = r - 1, col = c - 1, idx = row * SZ + col;
                     if (!myShots[idx]) {
                         myShots[idx] = true;
+                        myTurn = false; // disable until result comes back
                         socket.emit('game-action', { roomCode, action: { type: 'fire', row, col } });
-                        myTurn = false;
                         draw();
                     }
                 }
@@ -133,18 +133,26 @@
                 if (iReady) startBattle(); // start if I'm also ready
             }
             if (action.type === 'fire') {
+                // Opponent fired at my grid
                 const { row, col } = action;
                 const hit = myBoard[row][col] === 1;
                 myBoard[row][col] = hit ? 2 : 3;
                 const result = { row, col, hit, sunk: sunk(myBoard) };
                 socket.emit('game-action', { roomCode, action: { type: 'fire-result', ...result } });
-                myTurn = true;
+                if (!hit) myTurn = true; // miss: my turn to shoot back
+                // hit: opponent gets to go again (myTurn stays false — it's their turn)
                 draw();
                 if (result.sunk && !over) endGame(false);
             }
             if (action.type === 'fire-result') {
+                // Result of my shot arrives
                 const { row, col, hit, sunk: s } = action;
                 oppBoard[row][col] = hit ? 2 : 3;
+                if (hit && !s) {
+                    myTurn = true; // hit and game not over: go again!
+                } else if (!hit) {
+                    myTurn = false; // miss: opponent's turn
+                }
                 draw();
                 if (s && !over) endGame(true);
             }
